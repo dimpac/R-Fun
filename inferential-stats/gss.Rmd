@@ -1,0 +1,184 @@
+---
+title: "Statistical inference with the GSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+```
+
+```{r load-data}
+load("gss.Rdata")
+```
+
+
+
+* * *
+
+
+The General Social Survey (GSS) is an unbiased survey that polls Americans opinion on issues as national spending, priorities and crime.
+The survey has been conducted since 1972 using simple random sampling on samples that range between 1,372 and 1,613 individuals.
+
+From this, we can conclude that this study is observational and samples may have the following biases:
+
+- Non-response bias: If only a non-random fraction of the survey recipients respond
+
+Therefore, this study can only be generalised to the American population and no causality can be concluded
+
+```{r}
+
+genderJobConfidence <- gss[c("sex","joblose")] %>% filter(!is.na(joblose)) %>% mutate(response = ifelse(joblose == "Very Likely" | joblose == "Fairly Likely","Yes","No")) %>% group_by(sex,response) %>% summarise(count=n())
+
+head(genderJobConfidence)
+```
+
+
+
+* * *
+
+## Research question
+
+Job security is an important factor that provides stability and better opportunities to families. Are males and females equally likely to think that it is *very likely* or *fairly likely* that they will lose their job in the next 12 months?
+
+
+* * *
+
+## Exploratory data analysis
+
+Let's first understand the yearly distribution of the dataset.
+
+```{r}
+ggplot(gss, aes(x= year)) + geom_bar()
+```
+
+As we can see, the survey first started yearly, except for 1979, 1981 and 1992. Since 1994, the GSS has been conducted in even numbered years.
+
+
+```{r}
+ggplot(gss, aes(x= year, fill=sex)) + geom_bar(position = "dodge")
+```
+
+The survey has strived to keep gender equality, although women are more keen to respond in all surveyed years
+
+```{r}
+gss_modified <- gss %>% mutate(toAnalyse = ifelse(is.na(joblose),"No","Yes")) %>% mutate(response = ifelse(joblose == "Very Likely" | joblose == "Fairly Likely","Yes","No"))
+```
+
+For the purpose of this analysis, around 30% - 50% of surveyed individuals answered the question related to losing the job in the next 12 months. Years 1972, 1973, 1974, 1975, 1976, 1980, 1984 and 1986 did not seem to ask this question and will be excluded from the analysis
+
+```{r}
+ ggplot(gss_modified, aes(x= year, fill=toAnalyse)) + geom_bar()
+```
+
+```{r}
+gss_modified_summarised <- gss_modified %>% group_by(year,sex,response,toAnalyse) %>% summarise(cnt = n())
+
+```
+
+There seems to be a clear difference between individuals who do not believe they will lose their job in the next 12 months and those who believe they will.
+
+```{r}
+ggplot(filter(gss_modified_summarised,toAnalyse == "Yes"), aes(x= response, y=cnt)) + geom_boxplot()
+```
+
+Here we start to get hints to our research questions. For males and females there is not clear difference in terms of believing that their job will be lost in the next 12 months
+
+```{r}
+gss_modified_summarised %>% filter(toAnalyse == "Yes") %>% group_by(sex) %>% summarise(mean = mean(cnt), iqr=IQR(cnt), median = median(cnt))
+
+gss_modified_summarised %>% filter(toAnalyse == "Yes") %>% group_by(response) %>% summarise(mean = mean(cnt), iqr=IQR(cnt), median = median(cnt))
+```
+
+```{r}
+gss_summarised_yes <- gss_modified_summarised %>% filter(toAnalyse == "Yes") %>% filter(response ==" Yes")
+
+```
+
+The following boxplot confirms that there does not seem to be a significant difference in belief about job security for males and females
+
+```{r}
+ggplot(filter(gss_modified_summarised,toAnalyse == "Yes"), aes(x=sex, y=cnt)) + geom_boxplot()
+```
+
+* * *
+
+## Inference
+
+We more or less know the answer, however, let's prove it using statistical inference.
+
+```{r}
+genderJobConfidenceSummary <- genderJobConfidence %>% group_by(sex) %>% summarise(gender_count = sum(count))
+genderJobConfidenceFinal <- merge(genderJobConfidence, genderJobConfidenceSummary) %>% mutate(p = 100 * count/gender_count)
+
+head(genderJobConfidenceFinal)
+
+```
+
+Let's now calculate *p-pool*
+
+```{r}
+p_pool <- (1039 + 1001) / (9278 + 9494)
+print(p_pool)
+
+```
+
+Let's check conditions for inference of two proportions
+
+independence:
+
+* *Within groups: random sample and 10% condition*
+
+Sampled males independent of each other, sampled females are as well
+
+* *Between groups*
+
+No reason to expect sampled males and females to be dependent
+
+* *Sample size / skew*
+
+Males: 9494 * 0.45 = 4272.3 and 9494 * 0.55 = 5221.7
+
+Females: 9278 * 0.45 = 4175.1 and 9278 * 0.55 = 5102.9
+
+
+### Hypothesis Test
+
+$H_o: p_{male} - p_{female} = 0$
+
+$H_a: p_{male} - p_{female} != 0$
+
+Let's calculate the Standard Error
+
+```{r}
+std_err <- sqrt(p_pool*(1-p_pool)/9494 + p_pool*(1-p_pool)/9278)
+print(std_err)
+```
+
+Let's calculate the point estimate
+
+```{r}
+pdiff <- 0.1078 - 0.1094
+print(pdiff)
+```
+
+```{r}
+z <- pdiff / std_err
+print(z)
+```
+
+```{r}
+p_value <- pnorm(z, lower.tail = FALSE) * 2
+print(p_value)
+```
+```{r}
+inference(y = response, x = sex, data = genderJobConfidence, statistic = "proportion", type = "ht", method = "theoretical", success = "Yes", alternative = "twosided", null = 0)
+```
+
+###As the p-value is over 0.05 We cannot reject the null hypothesis, which makes us conclude that there is not enough evidence of a statistical difference between males and females in terms of believing that they will lose their job in the next 12 months
